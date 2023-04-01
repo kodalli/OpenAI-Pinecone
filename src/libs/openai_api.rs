@@ -1,5 +1,24 @@
+use lazy_static::lazy_static;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::{env, error::Error, sync::Arc};
+use tiktoken_rs::{cl100k_base, CoreBPE};
 use typed_builder::TypedBuilder;
+
+lazy_static! {
+    static ref CLIENT: Arc<Client> = {
+        dotenv::dotenv().ok();
+        let api_key = env::var("OPENAI_API_KEY").expect("Failed to locate api key.");
+
+        let client = Client::builder()
+            .default_headers(headers(api_key))
+            .build()
+            .expect("Failed to create client connection.");
+
+        Arc::new(client)
+    };
+    static ref BPE: CoreBPE = cl100k_base().unwrap();
+}
 
 /// Represents a request body for OpenAI's Chat API.
 ///
@@ -106,7 +125,37 @@ impl OpenAIRequest {
 
         Ok(())
     }
+
+    pub async fn send(&self) -> Result<OpenAIResponse, Box<dyn Error>> {
+        self.validate()?;
+
+        let response: OpenAIResponse = CLIENT
+            .post("https://api.openai.com/v1/chat/completions")
+            .json(self)
+            .send()
+            .await
+            .map_err(|_| "Failed to send request.")?
+            .json()
+            .await
+            .map_err(|_| "Failed to deserialize response.")?;
+
+        Ok(response)
+    }
 }
+
+fn headers(api_key: String) -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::AUTHORIZATION,
+        format!("Bearer {}", api_key).parse().unwrap(),
+    );
+    headers.insert(
+        reqwest::header::CONTENT_TYPE,
+        "application/json".parse().unwrap(),
+    );
+    headers
+}
+
 #[derive(Debug)]
 pub enum ValidationError {
     InvalidTemperature,
@@ -122,10 +171,16 @@ impl std::error::Error for ValidationError {}
 impl std::fmt::Display for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ValidationError::InvalidTemperature => write!(f, "temperature must be between 0 and 2."),
+            ValidationError::InvalidTemperature => {
+                write!(f, "temperature must be between 0 and 2.")
+            }
             ValidationError::InvalidTopP => write!(f, "Top_p must be between 0 and 1."),
-            ValidationError::InvalidPresencePenalty => write!(f, "Presence_penalty must be between -2.0 and 2.0."),
-            ValidationError::InvalidFrequencyPenalty => write!(f, "Frequency_penalty must be between -2.0 and 2.0."),
+            ValidationError::InvalidPresencePenalty => {
+                write!(f, "Presence_penalty must be between -2.0 and 2.0.")
+            }
+            ValidationError::InvalidFrequencyPenalty => {
+                write!(f, "Frequency_penalty must be between -2.0 and 2.0.")
+            }
         }
     }
 }
@@ -134,6 +189,18 @@ impl std::fmt::Display for ValidationError {
 pub struct Message {
     role: String,
     content: String,
+}
+
+impl Message {
+    pub fn to_string(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
+
+    pub fn get_tokens(&self) -> Result<Vec<usize>, serde_json::Error> {
+        let msg = &self.to_string()?;
+        let tokens = BPE.encode_with_special_tokens(msg);
+        Ok(tokens)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
