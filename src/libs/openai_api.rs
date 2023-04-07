@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::{env, error::Error, sync::Arc};
-use tiktoken_rs::{cl100k_base, CoreBPE};
+use tiktoken_rs::cl100k_base;
 use typed_builder::TypedBuilder;
 
 lazy_static! {
@@ -17,7 +17,19 @@ lazy_static! {
 
         Arc::new(client)
     };
-    static ref BPE: CoreBPE = cl100k_base().unwrap();
+}
+
+pub fn headers(api_key: String) -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::AUTHORIZATION,
+        format!("Bearer {}", api_key).parse().unwrap(),
+    );
+    headers.insert(
+        reqwest::header::CONTENT_TYPE,
+        "application/json".parse().unwrap(),
+    );
+    headers
 }
 
 /// Represents a request body for OpenAI's Chat API.
@@ -143,19 +155,6 @@ impl OpenAIRequest {
     }
 }
 
-fn headers(api_key: String) -> reqwest::header::HeaderMap {
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        reqwest::header::AUTHORIZATION,
-        format!("Bearer {}", api_key).parse().unwrap(),
-    );
-    headers.insert(
-        reqwest::header::CONTENT_TYPE,
-        "application/json".parse().unwrap(),
-    );
-    headers
-}
-
 #[derive(Debug)]
 pub enum ValidationError {
     InvalidTemperature,
@@ -198,7 +197,8 @@ impl Message {
 
     pub fn get_tokens(&self) -> Result<Vec<usize>, serde_json::Error> {
         let msg = &self.to_string()?;
-        let tokens = BPE.encode_with_special_tokens(msg);
+        let bpe = cl100k_base().unwrap();
+        let tokens = bpe.encode_with_special_tokens(msg);
         Ok(tokens)
     }
 }
@@ -227,6 +227,7 @@ pub struct OpenAIResponse {
     choices: Vec<Choice>,
 }
 
+// getters
 impl Message {
     pub fn role(&self) -> &str {
         &self.role
