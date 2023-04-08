@@ -967,11 +967,11 @@ dependencies = [
  "dotenv",
  "lazy_static",
  "pdf-extract",
- "pinecone",
  "rayon",
  "reqwest",
  "serde",
  "serde_json",
+ "thiserror",
  "tiktoken-rs",
  "tokio",
  "typed-builder",
@@ -1078,15 +1078,6 @@ name = "pin-utils"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
-
-[[package]]
-name = "pinecone"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "277ed46b8c36660fbd0d6fb76d44680cc3390078519b3ff57880597fd793d9fb"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "pkg-config"

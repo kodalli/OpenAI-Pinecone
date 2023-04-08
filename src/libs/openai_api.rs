@@ -176,28 +176,28 @@ pub struct OpenAIRequest {
 }
 
 impl OpenAIRequest {
-    pub fn validate(&self) -> Result<(), ValidationError> {
+    pub fn validate(&self) -> Result<(), OpenAIApiError> {
         if let Some(temp) = self.temperature {
             if temp < 0.0 || temp > 2.0 {
-                return Err(ValidationError::InvalidTemperature);
+                return Err(OpenAIApiError::InvalidTemperature);
             }
         }
 
         if let Some(p) = self.top_p {
             if p < 0.0 || p > 1.0 {
-                return Err(ValidationError::InvalidTopP);
+                return Err(OpenAIApiError::InvalidTopP);
             }
         }
 
         if let Some(penalty) = self.presence_penalty {
             if penalty < -2.0 || penalty > 2.0 {
-                return Err(ValidationError::InvalidPresencePenalty);
+                return Err(OpenAIApiError::InvalidPresencePenalty);
             }
         }
 
         if let Some(penalty) = self.frequency_penalty {
             if penalty < -2.0 || penalty > 2.0 {
-                return Err(ValidationError::InvalidFrequencyPenalty);
+                return Err(OpenAIApiError::InvalidFrequencyPenalty);
             }
         }
 
@@ -222,7 +222,7 @@ impl OpenAIRequest {
 }
 
 #[derive(Debug)]
-pub enum ValidationError {
+pub enum OpenAIApiError {
     InvalidTemperature,
     InvalidTopP,
     InvalidPresencePenalty,
@@ -230,20 +230,20 @@ pub enum ValidationError {
 }
 
 // Implement the std::error::Error trait for the ValidationError enum
-impl std::error::Error for ValidationError {}
+impl std::error::Error for OpenAIApiError {}
 
 // Implement the std::fmt::Display trait for the ValidationError enum
-impl std::fmt::Display for ValidationError {
+impl std::fmt::Display for OpenAIApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ValidationError::InvalidTemperature => {
+            OpenAIApiError::InvalidTemperature => {
                 write!(f, "temperature must be between 0 and 2.")
             }
-            ValidationError::InvalidTopP => write!(f, "Top_p must be between 0 and 1."),
-            ValidationError::InvalidPresencePenalty => {
+            OpenAIApiError::InvalidTopP => write!(f, "Top_p must be between 0 and 1."),
+            OpenAIApiError::InvalidPresencePenalty => {
                 write!(f, "Presence_penalty must be between -2.0 and 2.0.")
             }
-            ValidationError::InvalidFrequencyPenalty => {
+            OpenAIApiError::InvalidFrequencyPenalty => {
                 write!(f, "Frequency_penalty must be between -2.0 and 2.0.")
             }
         }

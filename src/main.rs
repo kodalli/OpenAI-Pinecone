@@ -18,12 +18,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = "resources/longer.txt";
     let output_file = "resources/longer_embedding.json";
     test_txt_file_to_embedding_api(path, output_file).await?;
-    openai_embedding_read(output_file);
+    let embedding = openai_embedding_read(output_file);
+
     Ok(())
 }
 
 // From testing, all the embeddings regardless of size are 6kb
-fn openai_embedding_read(path: &str) {
+fn openai_embedding_read(path: &str) -> Vec<f32> {
     let file = File::open(path).unwrap();
     let reader = BufReader::new(file);
     let response: OpenAIEmbeddingResponse = from_reader(reader).unwrap();
@@ -32,6 +33,8 @@ fn openai_embedding_read(path: &str) {
     let kb = calc_data_size(embedding);
     println!("{:?}", embedding);
     println!("takes: {} kb", kb);
+
+    embedding.to_owned()
 }
 
 fn calc_data_size(embedding: &Vec<f32>) -> usize {
