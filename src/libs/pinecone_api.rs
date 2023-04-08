@@ -1,10 +1,7 @@
 use lazy_static::lazy_static;
-use pdf_extract::extract_text;
-use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use reqwest::Client;
 use serde_json::json;
 use std::{env, sync::Arc};
-use tiktoken_rs::cl100k_base;
 
 lazy_static! {
     static ref CLIENT: Arc<Client> = {
@@ -20,7 +17,7 @@ lazy_static! {
     };
 }
 
-pub fn headers(api_key: String) -> reqwest::header::HeaderMap {
+fn headers(api_key: String) -> reqwest::header::HeaderMap {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::AUTHORIZATION,
@@ -36,46 +33,9 @@ pub fn headers(api_key: String) -> reqwest::header::HeaderMap {
 const BASE_URL: &str = "https://test-index-1a567db.svc.us-west4-gcp.pinecone.io/";
 const UPSERT: &str = "vectors/upsert";
 
-pub fn embed_text(
-    text: &str,
-    max_tokens: usize,
-) -> Result<Vec<Vec<u32>>, Box<dyn std::error::Error>> {
-    let bpe = cl100k_base().unwrap();
-
-    let mut chunks = Vec::new();
-    let mut current_chunk = String::new();
-    let mut token_count = 0;
-
-    for line in text.lines() {
-        let line_tokens: Vec<&str> = line.split_whitespace().collect();
-        let line_token_count = line_tokens.len();
-
-        if token_count + line_token_count > max_tokens {
-            // Embed the current chunk and clear it for the next chunk
-            let chunk_embeddings = bpe.encode_with_special_tokens(&current_chunk);
-            chunks.push(chunk_embeddings.into_iter().map(|x| x as u32).collect());
-            current_chunk.clear();
-            token_count = 0;
-        }
-
-        // Add the line to the current chunk
-        current_chunk.push_str(line);
-        current_chunk.push('\n');
-        token_count += line_token_count;
-    }
-
-    // Embed the last chunk if it has any content
-    if !current_chunk.is_empty() {
-        let chunk_embeddings = bpe.encode_with_special_tokens(&current_chunk);
-        chunks.push(chunk_embeddings.into_iter().map(|x| x as u32).collect());
-    }
-
-    Ok(chunks)
-}
-
-async fn upsert_to_pinecone(
+pub async fn upsert_to_pinecone(
     vector_id: &str,
-    vector_data: &[Vec<usize>],
+    vector_data: &[Vec<u32>],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let vector_data_serialized = json!(vector_data);
 
@@ -101,13 +61,9 @@ async fn upsert_to_pinecone(
 
 // pub async fn semantic_search(
 //     index_name: &str,
-//     query: &str,
-//     model: &Model,
+//     embedded_query: &str,
 //     num_results: usize,
 // ) -> Result<Vec<(String, f32)>, Box<dyn std::error::Error>> {
-//     // Embed the query using the same model as the documents
-//     let embedder = Embedder::new(model.clone());
-//     let query_embeddings = embedder.embed_sentence(query)?;
 
 //     let results = CLIENT
 //         .fetch(index_name, &query_embeddings, num_results)
@@ -122,23 +78,45 @@ async fn upsert_to_pinecone(
 //     Ok(ranked_results)
 // }
 
-fn process_files(
-    files: &[String],
-    max_tokens: usize,
-) -> Result<Vec<Result<Vec<Vec<u32>>, String>>, Box<dyn std::error::Error>> {
-    let embeddings: Vec<Result<Vec<Vec<u32>>, String>> = files
-        .par_iter()
-        .map(|filename| {
-            let res = extract_text(filename);
-            match res {
-                Ok(text) => match embed_text(&text, max_tokens) {
-                    Ok(embedding) => Ok(embedding),
-                    Err(e) => Err(format!("Error embedding text from {}: {}", filename, e)),
-                },
-                Err(e) => Err(format!("Error extracting text from {}: {}", filename, e)),
-            }
-        })
-        .collect();
+// fn extract_text_from_pdf(filename: &str) -> String {
+//     let bytes = std::fs::read(filename).unwrap();
+//     let out = pdf_extract::extract_text_from_mem(&bytes).unwrap();
+//     out
+// }
 
-    Ok(embeddings)
-}
+// pub fn process_files(
+//     files: &[String],
+//     max_tokens: u32,
+// ) -> Result<Vec<Result<Vec<Vec<u32>>, String>>, Box<dyn std::error::Error>> {
+//     let embeddings: Vec<Result<Vec<Vec<u32>>, String>> = files
+//         // .par_iter()
+//         .iter()
+//         .map(|filename| {
+//             let res = extract_text_from_pdf(filename);
+//             match res {
+//                 Ok(text) => match embed_text(&text, max_tokens) {
+//                     Ok(embedding) => Ok(embedding),
+//                     Err(e) => Err(format!("Error embedding text from {}: {}", filename, e)),
+//                 },
+//                 Err(e) => Err(format!("Error extracting text from {}: {}", filename, e)),
+//             }
+//         })
+//         .collect();
+
+//     Ok(embeddings)
+// }
+
+// fn process_texts(
+//     text_array: &[String],
+//     max_tokens: u32,
+// ) -> Result<Vec<Result<Vec<Vec<f32>>, String>>, Box<dyn std::error::Error>> {
+//     let embeddings: Vec<Result<Vec<Vec<f32>>, String>> = text_array
+//         .iter()
+//         .map(|text| match embed_text(text, max_tokens) {
+//             Ok(embedding) => Ok(embedding),
+//             Err(e) => Err(format!("Error embedding text: {}", e)),
+//         })
+//         .collect();
+
+//     Ok(embeddings)
+// }

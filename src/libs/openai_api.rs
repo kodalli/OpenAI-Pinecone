@@ -19,7 +19,7 @@ lazy_static! {
     };
 }
 
-pub fn headers(api_key: String) -> reqwest::header::HeaderMap {
+fn headers(api_key: String) -> reqwest::header::HeaderMap {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::AUTHORIZATION,
@@ -30,6 +30,72 @@ pub fn headers(api_key: String) -> reqwest::header::HeaderMap {
         "application/json".parse().unwrap(),
     );
     headers
+}
+
+/// Represents a request body for OpenAI's Embedding API.
+///
+/// # Fields
+///
+/// * `input`: Required. Input text to get embeddings for, encoded as a `String` or array of tokens.
+/// * `model`: Required. ID of the model to use. Use the List models API to see available models or refer to the Model overview for descriptions.
+/// * `user`: Optional. A unique identifier representing your end-user, which can help OpenAI monitor and detect abuse.
+///
+/// # Example
+///
+/// ```rust
+/// let embedding_request = OpenAIEmbeddingRequest::builder()
+///     .input("This is an example text.")
+///     .model("text-embedding-ada-002")
+///     .user(Some("unique_user_id"))
+///     .build();
+/// ```
+#[derive(Debug, Serialize, Deserialize, TypedBuilder)]
+pub struct OpenAIEmbeddingRequest {
+    input: String,
+    model: String,
+
+    #[builder(setter(strip_option), default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user: Option<String>,
+}
+
+impl OpenAIEmbeddingRequest {
+    fn validate(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let tokens = get_tokens(&self.input)?;
+        debug_assert!(tokens.len() <= 8191);
+        Ok(())
+    }
+
+    pub async fn send(&self) -> Result<OpenAIEmbeddingResponse, Box<dyn Error>> {
+        self.validate()?;
+
+        let response: OpenAIEmbeddingResponse = CLIENT
+            .post("https://api.openai.com/v1/embeddings")
+            .json(self)
+            .send()
+            .await
+            .map_err(|_| "Failed to send request.")?
+            .json()
+            .await
+            .map_err(|_| "Failed to deserialize response.")?;
+
+        Ok(response)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OpenAIEmbeddingResponse {
+    data: Vec<Embedding>,
+    model: String,
+    object: String,
+    usage: Usage,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Embedding {
+    embedding: Vec<f32>,
+    index: u32,
+    object: String,
 }
 
 /// Represents a request body for OpenAI's Chat API.
@@ -197,10 +263,15 @@ impl Message {
 
     pub fn get_tokens(&self) -> Result<Vec<usize>, serde_json::Error> {
         let msg = &self.to_string()?;
-        let bpe = cl100k_base().unwrap();
-        let tokens = bpe.encode_with_special_tokens(msg);
+        let tokens = get_tokens(msg)?;
         Ok(tokens)
     }
+}
+
+pub fn get_tokens(msg: &str) -> Result<Vec<usize>, serde_json::Error> {
+    let bpe = cl100k_base().unwrap();
+    let tokens = bpe.encode_with_special_tokens(msg);
+    Ok(tokens)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -213,8 +284,10 @@ pub struct Choice {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Usage {
     prompt_tokens: u32,
-    completion_tokens: u32,
     total_tokens: u32,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    completion_tokens: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -257,7 +330,7 @@ impl Usage {
         self.prompt_tokens
     }
 
-    pub fn completion_tokens(&self) -> u32 {
+    pub fn completion_tokens(&self) -> Option<u32> {
         self.completion_tokens
     }
 
@@ -289,5 +362,37 @@ impl OpenAIResponse {
 
     pub fn choices(&self) -> &[Choice] {
         &self.choices
+    }
+}
+
+impl OpenAIEmbeddingResponse {
+    pub fn data(&self) -> &Vec<Embedding> {
+        &self.data
+    }
+
+    pub fn model(&self) -> &String {
+        &self.model
+    }
+
+    pub fn object(&self) -> &String {
+        &self.object
+    }
+
+    pub fn usage(&self) -> &Usage {
+        &self.usage
+    }
+}
+
+impl Embedding {
+    pub fn embedding(&self) -> &Vec<f32> {
+        &self.embedding
+    }
+
+    pub fn index(&self) -> u32 {
+        self.index
+    }
+
+    pub fn object(&self) -> &String {
+        &self.object
     }
 }
