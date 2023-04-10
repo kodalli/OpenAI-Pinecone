@@ -1,9 +1,10 @@
 use lazy_static::lazy_static;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, env, sync::Arc};
+use serde::de::DeserializeOwned;
+use std::{env, sync::Arc};
 use thiserror::Error;
-use typed_builder::TypedBuilder;
+
+use super::pinecone_data::{IdList, PineconeRequest, PineconeResponse};
 
 lazy_static! {
     static ref CLIENT: Arc<Client> = {
@@ -21,14 +22,12 @@ lazy_static! {
 
 fn headers(api_key: String) -> reqwest::header::HeaderMap {
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        reqwest::header::AUTHORIZATION,
-        format!("Api-Key: {}", api_key).parse().unwrap(),
-    );
+    headers.insert("Api-Key", api_key.parse().unwrap());
     headers.insert(
         reqwest::header::CONTENT_TYPE,
         "application/json".parse().unwrap(),
     );
+    headers.insert(reqwest::header::ACCEPT, "application/json".parse().unwrap());
     headers
 }
 
@@ -36,102 +35,8 @@ const BASE_URL: &str = "https://test-index-1a567db.svc.us-west4-gcp.pinecone.io/
 const UPSERT: &str = "vectors/upsert";
 const QUERY: &str = "query";
 const UPDATE: &str = "vectors/update";
-const FETCH: &str = "vectors/fetch?ids=";
-const DELETE: &str = "vectors/delete?ids=";
-
-///
-///
-/// # Fields
-///  
-///
-///
-#[derive(Debug, Serialize, Deserialize, TypedBuilder)]
-pub struct PineconeRequest {
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    vectors: Option<Vec<Vector>>,
-
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    namespace: Option<String>,
-
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    vector: Option<Vector>,
-
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "topK")]
-    top_k: Option<u32>,
-
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "includeMetadata")]
-    include_metadata: Option<bool>,
-
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "includeValues")]
-    include_values: Option<bool>,
-
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "setMetadata")]
-    set_metadata: Option<HashMap<String, String>>,
-
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "sparseVector")]
-    sparse_vector: Option<Vector>,
-
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "sparseValues")]
-    sparse_values: Option<Vec<Vector>>,
-
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ids: Option<IdList>,
-
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
-
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    filter: Option<HashMap<String, String>>,
-
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "deleteAll")]
-    delete_all: Option<bool>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum IdList {
-    IntegerIds(Vec<u32>),
-    TextIds(Vec<String>),
-}
-
-#[derive(Debug, Serialize, Deserialize, TypedBuilder)]
-pub struct Vector {
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
-
-    values: Vec<f32>,
-
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    indices: Option<Vec<u32>>,
-
-    #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    metadata: Option<HashMap<String, String>>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PineconeResponse {}
+const FETCH: &str = "vectors/fetch";
+const DELETE: &str = "vectors/delete";
 
 // Error handling
 #[derive(Debug, Error)]
@@ -153,139 +58,291 @@ pub enum PineconeApiError {
 }
 // Error handling
 
+// Request Functions
 impl PineconeRequest {
-    pub async fn upsert(&self) -> Result<PineconeResponse, PineconeApiError> {
-        // vectors must not be empty
-        if self.vectors.is_none() || self.vectors.as_ref().unwrap().len() == 0 {
-            return Err(PineconeApiError::UpsertError(
-                "vectors cannot be empty for upsert request.".to_string(),
-            ));
-        }
-
-        let response: PineconeResponse = CLIENT
-            .post(format!("{}{}", BASE_URL, UPSERT))
+    async fn send<T, E>(&self, endpoint: &str, error: E) -> Result<T, PineconeApiError>
+    where
+        T: DeserializeOwned,
+        E: Fn(String) -> PineconeApiError,
+    {
+        let response = CLIENT
+            .post(format!("{}{}", BASE_URL, endpoint))
             .json(self)
             .send()
-            .await
-            .map_err(|e| PineconeApiError::UpsertError(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| PineconeApiError::UpsertError(e.to_string()))?;
+            .await;
 
-        Ok(response)
+        println!("{:?}", response);
+
+        let result = match response {
+            Ok(response) => {
+                let status = response.status();
+
+                if status.is_success() {
+                    println!("success");
+                    response.json().await.map_err(|e| e.to_string())
+                } else {
+                    println!("{}", status);
+                    Err(format!("Error status: {}", status))
+                }
+            }
+            Err(e) => {
+                println!("{:?}", e);
+                Err(e.to_string())
+            }
+        };
+
+        result.map_err(error)
     }
 
+    ///
+    /// Fields: vectors, namespace
+    ///
+    pub async fn upsert(&self) -> Result<PineconeResponse, PineconeApiError> {
+        // vectors must not be empty
+        if self.vectors().as_ref().map_or(true, |v| v.len() == 0) {
+            return Err(PineconeApiError::UpsertError(
+                "vectors cannot be empty".to_string(),
+            ));
+        }
+
+        self.send(UPSERT, |error_message| {
+            PineconeApiError::UpsertError(error_message)
+        })
+        .await
+    }
+
+    ///
+    /// Fields: namespace, top_k, filter, include_values, include_metadata, vector, sparse_vector, id
+    ///
     pub async fn query(&self) -> Result<PineconeResponse, PineconeApiError> {
-        if self.vector.is_none() {
-            return Err(PineconeApiError::QueryError(
+        if let Some(value) = self.validate_query_request() {
+            return value;
+        }
+
+        self.send(QUERY, |error_message| {
+            PineconeApiError::QueryError(error_message)
+        })
+        .await
+    }
+
+    fn validate_query_request(&self) -> Option<Result<PineconeResponse, PineconeApiError>> {
+        if self.id().as_ref().map_or(false, |id| id.len() > 512) {
+            return Some(Err(PineconeApiError::QueryError(
+                "id length must be 512 or less".to_string(),
+            )));
+        }
+
+        if self.vector().is_none() {
+            return Some(Err(PineconeApiError::QueryError(
                 "vector cannot be empty".to_string(),
-            ));
+            )));
         }
 
-        if self.top_k.is_none() {
-            return Err(PineconeApiError::QueryError(
+        if self.top_k().is_none() {
+            return Some(Err(PineconeApiError::QueryError(
                 "top_k cannot be empty".to_string(),
-            ));
+            )));
+        } else if self.top_k().as_ref().map_or(false, |k| k < &1) {
+            return Some(Err(PineconeApiError::QueryError(
+                "top_k must be at least 1".to_string(),
+            )));
         }
 
-        if self.sparse_vector.is_some() {
-            let sparse = self.sparse_vector.as_ref().unwrap();
-            if sparse.indices.is_none() {
-                return Err(PineconeApiError::QueryError(
+        if let Some(sparse) = &self.sparse_vector() {
+            let indices_len = sparse.indices().as_ref().map_or(0, |indices| indices.len());
+            let values_len = sparse.values().len();
+
+            if indices_len == 0 {
+                return Some(Err(PineconeApiError::QueryError(
                     "indices cannot be empty when providing a sparse_vector".to_string(),
-                ));
-            } else if sparse.indices.as_ref().unwrap().len() != sparse.values.len() {
-                return Err(PineconeApiError::QueryError(
+                )));
+            } else if indices_len != values_len {
+                return Some(Err(PineconeApiError::QueryError(
                     "indices and values must have the same length when providing a sparse_vector"
                         .to_string(),
-                ));
+                )));
             }
         }
 
-        let response: PineconeResponse = CLIENT
-            .post(format!("{}{}", BASE_URL, QUERY))
-            .json(self)
+        None
+    }
+
+    ///
+    /// Fields: id, values, sparse_values, set_metadata, namespace
+    ///
+    pub async fn update(&self) -> Result<PineconeResponse, PineconeApiError> {
+        if let Some(value) = self.validate_update_request() {
+            return value;
+        }
+
+        self.send(UPDATE, |error_message| {
+            PineconeApiError::UpdateError(error_message)
+        })
+        .await
+    }
+
+    fn validate_update_request(&self) -> Option<Result<PineconeResponse, PineconeApiError>> {
+        let id_len = self.id().as_ref().map_or(0, |id| id.len());
+        if id_len <= 1 || id_len > 512 {
+            return Some(Err(PineconeApiError::UpdateError(
+                "id is required and must have a length between 1 and 512".to_string(),
+            )));
+        }
+
+        if self.sparse_values().is_none() && self.set_metadata().is_none() {
+            return Some(Err(PineconeApiError::UpdateError(
+                "You must provide something to update! Provide either a sparse_values or set_metadata field".to_string(),
+            )));
+        }
+
+        if let Some(sparse) = &self.sparse_values() {
+            let indices_len = sparse.indices().as_ref().map_or(0, |indices| indices.len());
+            let values_len = sparse.values().len();
+
+            if values_len == 0 || indices_len == 0 || (values_len != indices_len) {
+                return Some(Err(PineconeApiError::UpdateError(
+                    "sparse indices and values cannot be empty and must have the same length."
+                        .to_string(),
+                )));
+            }
+        }
+
+        None
+    }
+
+    ///
+    /// Fields: ids, namespace
+    ///
+    pub async fn fetch(&self) -> Result<PineconeResponse, PineconeApiError> {
+        let url: String;
+        if let Some(IdList::TextIds(ids)) = &self.ids() {
+            let url_temp = ids
+                .iter()
+                .fold(BASE_URL.to_owned(), |url, id| format!("{}&ids={}", url, id));
+
+            if let Some(namespace) = self.namespace() {
+                url = format!("{}&namespace={}", url_temp, namespace);
+            } else {
+                url = url_temp;
+            }
+        } else {
+            return Err(PineconeApiError::FetchError(
+                "ids cannot be empty".to_string(),
+            ));
+        }
+
+        let response = CLIENT
+            .get(url)
             .send()
             .await
-            .map_err(|e| PineconeApiError::QueryError(e.to_string()))?
+            .map_err(|e| PineconeApiError::FetchError(e.to_string()))?
             .json()
             .await
-            .map_err(|e| PineconeApiError::QueryError(e.to_string()))?;
+            .map_err(|e| PineconeApiError::FetchError(e.to_string()))?;
 
         Ok(response)
     }
 
-    pub async fn update(&self) {
-        todo!()
+    ///
+    /// Fields: ids, delete_all, filter, namespace
+    ///
+    pub async fn delete(&self) -> Result<PineconeResponse, PineconeApiError> {
+        if let Some(value) = self.validate_delete_request() {
+            return value;
+        }
+
+        self.send(DELETE, |error_message| {
+            PineconeApiError::DeleteError(error_message)
+        })
+        .await
     }
 
-    pub async fn fetch(&self) {
-        todo!()
-    }
+    fn validate_delete_request(&self) -> Option<Result<PineconeResponse, PineconeApiError>> {
+        if self.ids().is_none() && self.delete_all().is_none() {
+            return Some(Err(PineconeApiError::DeleteError(
+                "You must provide either delete_all or ids to delete".to_string(),
+            )));
+        }
 
-    pub async fn delete(&self) {
-        todo!()
+        match &self.ids() {
+            Some(IdList::IntegerIds(_)) => {
+                return Some(Err(PineconeApiError::DeleteError(
+                    "ids must be Strings".to_string(),
+                )))
+            }
+            Some(IdList::TextIds(val)) => {
+                if val.len() == 0 {
+                    return Some(Err(PineconeApiError::DeleteError(
+                        "ids cannot be empty".to_string(),
+                    )));
+                }
+            }
+            None => {
+                return None;
+            }
+        }
+        None
     }
+    // validation functions
 }
 
-// pub async fn semantic_search(
-//     index_name: &str,
-//     embedded_query: &str,
-//     num_results: usize,
-// ) -> Result<Vec<(String, f32)>, Box<dyn std::error::Error>> {
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::libs::{openai_api::OpenAIEmbeddingResponse, pinecone_data::Vector};
+    use serde_json::from_reader;
+    use std::{fs::File, io::BufReader};
+    use tokio::test;
 
-//     let results = CLIENT
-//         .fetch(index_name, &query_embeddings, num_results)
-//         .await?;
+    #[test]
+    async fn test_upsert() {
+        let embedding = read_openai_response_from_file("resources/embedding_example.json");
 
-//     // Convert Pinecone results to a Vec<(String, f32)> format
-//     let mut ranked_results: Vec<(String, f32)> = Vec::new();
-//     for (id, score) in results {
-//         ranked_results.push((id, score));
-//     }
+        let namespace = "test_namespace".to_string();
+        let vectors = vec![Vector::builder()
+            .id("dummy-id".to_string())
+            .values(embedding)
+            .build()];
 
-//     Ok(ranked_results)
-// }
+        let response = PineconeRequest::builder()
+            .vectors(vectors)
+            .namespace(namespace)
+            .build()
+            .upsert()
+            .await;
 
-// fn extract_text_from_pdf(filename: &str) -> String {
-//     let bytes = std::fs::read(filename).unwrap();
-//     let out = pdf_extract::extract_text_from_mem(&bytes).unwrap();
-//     out
-// }
+        let response = response.unwrap();
+        println!("{:?}", response);
+    }
 
-// pub fn process_files(
-//     files: &[String],
-//     max_tokens: u32,
-// ) -> Result<Vec<Result<Vec<Vec<u32>>, String>>, Box<dyn std::error::Error>> {
-//     let embeddings: Vec<Result<Vec<Vec<u32>>, String>> = files
-//         // .par_iter()
-//         .iter()
-//         .map(|filename| {
-//             let res = extract_text_from_pdf(filename);
-//             match res {
-//                 Ok(text) => match embed_text(&text, max_tokens) {
-//                     Ok(embedding) => Ok(embedding),
-//                     Err(e) => Err(format!("Error embedding text from {}: {}", filename, e)),
-//                 },
-//                 Err(e) => Err(format!("Error extracting text from {}: {}", filename, e)),
-//             }
-//         })
-//         .collect();
+    #[ignore]
+    #[test]
+    async fn test_query() {
+        todo!()
+    }
 
-//     Ok(embeddings)
-// }
+    #[ignore]
+    #[test]
+    async fn test_update() {
+        todo!()
+    }
 
-// fn process_texts(
-//     text_array: &[String],
-//     max_tokens: u32,
-// ) -> Result<Vec<Result<Vec<Vec<f32>>, String>>, Box<dyn std::error::Error>> {
-//     let embeddings: Vec<Result<Vec<Vec<f32>>, String>> = text_array
-//         .iter()
-//         .map(|text| match embed_text(text, max_tokens) {
-//             Ok(embedding) => Ok(embedding),
-//             Err(e) => Err(format!("Error embedding text: {}", e)),
-//         })
-//         .collect();
+    #[ignore]
+    #[test]
+    async fn test_fetch() {
+        todo!()
+    }
 
-//     Ok(embeddings)
-// }
+    #[ignore]
+    #[test]
+    async fn test_delete() {
+        todo!()
+    }
+
+    fn read_openai_response_from_file(path: &str) -> Vec<f32> {
+        let file = File::open(path).unwrap();
+        let reader = BufReader::new(file);
+        let response: OpenAIEmbeddingResponse = from_reader(reader).unwrap();
+        response.data().get(0).unwrap().embedding().to_owned()
+    }
+}

@@ -4,7 +4,10 @@ use std::{
     io::{BufReader, BufWriter, Read},
 };
 
-use libs::openai_api::{OpenAIEmbeddingRequest, OpenAIEmbeddingResponse};
+use libs::{
+    openai_api::{OpenAIEmbeddingRequest, OpenAIEmbeddingResponse},
+    pinecone_data::{PineconeRequest, Vector},
+};
 use serde_json::{from_reader, to_writer};
 
 use crate::libs::openai_api::{Message, OpenAIRequest};
@@ -15,10 +18,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // let prompt = "Example text for embedding.";
     // test_openai_embedding_api(prompt, "resources/embedding_example.json").await?;
     // openai_embedding_read("resources/embedding_example.json");
-    let path = "resources/longer.txt";
-    let output_file = "resources/longer_embedding.json";
-    test_txt_file_to_embedding_api(path, output_file).await?;
-    let embedding = openai_embedding_read(output_file);
+
+    // let path = "resources/longer.txt";
+    // let output_file = "resources/longer_embedding.json";
+    // test_txt_file_to_embedding_api(path, output_file).await?;
+    // let embedding = openai_embedding_read(output_file);
 
     Ok(())
 }
@@ -30,9 +34,9 @@ fn openai_embedding_read(path: &str) -> Vec<f32> {
     let response: OpenAIEmbeddingResponse = from_reader(reader).unwrap();
     let embedding = response.data().get(0).unwrap().embedding();
     // bytes
-    let kb = calc_data_size(embedding);
-    println!("{:?}", embedding);
-    println!("takes: {} kb", kb);
+    // let kb = calc_data_size(embedding);
+    // println!("{:?}", embedding);
+    // println!("takes: {} kb", kb);
 
     embedding.to_owned()
 }
