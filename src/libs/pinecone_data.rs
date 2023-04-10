@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use typed_builder::TypedBuilder;
 
+use super::database_api::Observer;
+
 /// PineconeRequest represents a request to the Pinecone API.
 ///
 /// # Fields
@@ -80,6 +82,11 @@ pub struct PineconeRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "deleteAll")]
     delete_all: Option<bool>,
+
+    // Used to update database with raw text data
+    #[serde(skip)]
+    #[builder(setter(strip_option), default)]
+    observer: Option<Box<dyn Observer>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -192,6 +199,10 @@ impl PineconeRequest {
 
     pub fn delete_all(&self) -> &Option<bool> {
         &self.delete_all
+    }
+
+    pub fn observer(&self) -> &Option<Box<dyn Observer>> {
+        &self.observer
     }
 }
 

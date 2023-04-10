@@ -94,6 +94,12 @@ impl PineconeRequest {
         result.map_err(error)
     }
 
+    pub async fn notify_observer(&self, operation: &str, data: &str) {
+        if let Some(observer) = self.observer().as_ref() {
+            let _ = observer.update(operation, data);
+        }
+    }
+
     ///
     /// Fields: vectors, namespace
     ///
@@ -105,10 +111,18 @@ impl PineconeRequest {
             ));
         }
 
-        self.send(UPSERT, |error_message| {
-            PineconeApiError::UpsertError(error_message)
-        })
-        .await
+        let result = self
+            .send(UPSERT, |error_message| {
+                PineconeApiError::UpsertError(error_message)
+            })
+            .await;
+
+        // if let Ok(response) = &result {
+        //     let data = serde_json::to_string(&response).unwrap_or_else(|_| "".to_string());
+        //     self.notify_observer("upsert", &data).await;
+        // }
+
+        result
     }
 
     ///
@@ -289,7 +303,9 @@ impl PineconeRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::libs::{openai_api::OpenAIEmbeddingResponse, pinecone_data::Vector};
+    use crate::libs::{
+        database_api::SQLiteObserver, openai_api::OpenAIEmbeddingResponse, pinecone_data::Vector,
+    };
     use serde_json::from_reader;
     use std::{fs::File, io::BufReader};
     use tokio::test;
@@ -297,6 +313,7 @@ mod tests {
     #[test]
     async fn test_upsert() {
         let embedding = read_openai_response_from_file("resources/embedding_example.json");
+        // let observer = Box::new(SQLiteObserver::new("test-db").unwrap());
 
         let namespace = "test_namespace".to_string();
         let vectors = vec![Vector::builder()
@@ -307,6 +324,7 @@ mod tests {
         let response = PineconeRequest::builder()
             .vectors(vectors)
             .namespace(namespace)
+            // .observer(observer)
             .build()
             .upsert()
             .await;
@@ -318,7 +336,14 @@ mod tests {
     #[ignore]
     #[test]
     async fn test_query() {
-        todo!()
+        let embedding = read_openai_response_from_file("resources/embedding_example.json");
+
+        let namespace = "test_namespace".to_string();
+
+        let vectors = vec![Vector::builder()
+            .id("dummy-id".to_string())
+            .values(embedding)
+            .build()];
     }
 
     #[ignore]

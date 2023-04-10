@@ -177,31 +177,22 @@ pub struct OpenAIRequest {
 
 impl OpenAIRequest {
     pub fn validate(&self) -> Result<(), OpenAIApiError> {
-        if let Some(temp) = self.temperature {
-            if temp < 0.0 || temp > 2.0 {
-                return Err(OpenAIApiError::InvalidTemperature);
+        match (
+            self.temperature.unwrap_or(0.0),
+            self.top_p.unwrap_or(0.0),
+            self.presence_penalty.unwrap_or(0.0),
+            self.frequency_penalty.unwrap_or(0.0),
+        ) {
+            (temp, _, _, _) if temp < 0.0 || temp > 2.0 => Err(OpenAIApiError::InvalidTemperature),
+            (_, p, _, _) if p < 0.0 || p > 1.0 => Err(OpenAIApiError::InvalidTopP),
+            (_, _, presence_penalty, _) if presence_penalty < -2.0 || presence_penalty > 2.0 => {
+                Err(OpenAIApiError::InvalidPresencePenalty)
             }
-        }
-
-        if let Some(p) = self.top_p {
-            if p < 0.0 || p > 1.0 {
-                return Err(OpenAIApiError::InvalidTopP);
+            (_, _, _, frequency_penalty) if frequency_penalty < -2.0 || frequency_penalty > 2.0 => {
+                Err(OpenAIApiError::InvalidFrequencyPenalty)
             }
+            _ => Ok(()),
         }
-
-        if let Some(penalty) = self.presence_penalty {
-            if penalty < -2.0 || penalty > 2.0 {
-                return Err(OpenAIApiError::InvalidPresencePenalty);
-            }
-        }
-
-        if let Some(penalty) = self.frequency_penalty {
-            if penalty < -2.0 || penalty > 2.0 {
-                return Err(OpenAIApiError::InvalidFrequencyPenalty);
-            }
-        }
-
-        Ok(())
     }
 
     pub async fn send(&self) -> Result<OpenAIResponse, Box<dyn Error>> {
