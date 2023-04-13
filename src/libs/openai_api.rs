@@ -2,6 +2,7 @@ use lazy_static::lazy_static;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::{env, error::Error, sync::Arc};
+use reqwest::header::{HeaderMap, HeaderValue};
 use tiktoken_rs::cl100k_base;
 use typed_builder::TypedBuilder;
 
@@ -19,15 +20,15 @@ lazy_static! {
     };
 }
 
-fn headers(api_key: String) -> reqwest::header::HeaderMap {
-    let mut headers = reqwest::header::HeaderMap::new();
+fn headers(api_key: String) -> HeaderMap {
+    let mut headers = HeaderMap::new();
     headers.insert(
         reqwest::header::AUTHORIZATION,
-        format!("Bearer {}", api_key).parse().unwrap(),
+        HeaderValue::from_str(format!("Bearer {}", api_key).as_str()).unwrap(),
     );
     headers.insert(
         reqwest::header::CONTENT_TYPE,
-        "application/json".parse().unwrap(),
+        HeaderValue::from_str("application/json").unwrap(),
     );
     headers
 }

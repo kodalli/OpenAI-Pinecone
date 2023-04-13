@@ -3,6 +3,7 @@ use std::{
     fs::File,
     io::{BufReader, BufWriter, Read},
 };
+use std::rc::Rc;
 
 use libs::{
     openai_api::{OpenAIEmbeddingRequest, OpenAIEmbeddingResponse},
@@ -27,8 +28,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn parse_text(path: &str) -> Result<(), Box<dyn std::error::Error>>{
+    let file = File::open(path).unwrap();
+    let mut reader = BufReader::new(file);
+    let mut text = String::new();
+    reader.read_to_string(&mut text)?;
+    // text.spl
+    Ok(())
+}
+
 // From testing, all the embeddings regardless of size are 6kb
-fn openai_embedding_read(path: &str) -> Vec<f32> {
+fn openai_embedding_read(path: &str) -> Rc<Vec<f32>> {
     let file = File::open(path).unwrap();
     let reader = BufReader::new(file);
     let response: OpenAIEmbeddingResponse = from_reader(reader).unwrap();
@@ -38,7 +48,7 @@ fn openai_embedding_read(path: &str) -> Vec<f32> {
     // println!("{:?}", embedding);
     // println!("takes: {} kb", kb);
 
-    embedding.to_owned()
+    Rc::new(embedding.to_vec())
 }
 
 fn calc_data_size(embedding: &Vec<f32>) -> usize {

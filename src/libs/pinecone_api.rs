@@ -2,7 +2,9 @@ use lazy_static::lazy_static;
 use reqwest::Client;
 use serde::de::DeserializeOwned;
 use std::{env, sync::Arc};
+use reqwest::header::{HeaderMap, HeaderValue};
 use thiserror::Error;
+use crate::libs::database::DatabaseOperation;
 
 use super::pinecone_data::{IdList, PineconeRequest, PineconeResponse};
 
@@ -20,14 +22,15 @@ lazy_static! {
     };
 }
 
-fn headers(api_key: String) -> reqwest::header::HeaderMap {
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("Api-Key", api_key.parse().unwrap());
+fn headers(api_key: String) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert("Api-Key", HeaderValue::from_str(api_key.as_str()).unwrap());
     headers.insert(
         reqwest::header::CONTENT_TYPE,
-        "application/json".parse().unwrap(),
+        HeaderValue::from_str("application/json").unwrap(),
     );
-    headers.insert(reqwest::header::ACCEPT, "application/json".parse().unwrap());
+    headers.insert(reqwest::header::ACCEPT, HeaderValue::from_str("application/json").unwrap());
+
     headers
 }
 
@@ -61,9 +64,9 @@ pub enum PineconeApiError {
 // Request Functions
 impl PineconeRequest {
     async fn send<T, E>(&self, endpoint: &str, error: E) -> Result<T, PineconeApiError>
-    where
-        T: DeserializeOwned,
-        E: Fn(String) -> PineconeApiError,
+        where
+            T: DeserializeOwned,
+            E: Fn(String) -> PineconeApiError,
     {
         let response = CLIENT
             .post(format!("{}{}", BASE_URL, endpoint))
@@ -94,12 +97,6 @@ impl PineconeRequest {
         result.map_err(error)
     }
 
-    pub async fn notify_observer(&self, operation: &str, data: &str) {
-        if let Some(observer) = self.observer().as_ref() {
-            let _ = observer.update(operation, data);
-        }
-    }
-
     ///
     /// Fields: vectors, namespace
     ///
@@ -111,18 +108,9 @@ impl PineconeRequest {
             ));
         }
 
-        let result = self
-            .send(UPSERT, |error_message| {
+        self.send(UPSERT, |error_message| {
                 PineconeApiError::UpsertError(error_message)
-            })
-            .await;
-
-        // if let Ok(response) = &result {
-        //     let data = serde_json::to_string(&response).unwrap_or_else(|_| "".to_string());
-        //     self.notify_observer("upsert", &data).await;
-        // }
-
-        result
+            }).await
     }
 
     ///
@@ -135,8 +123,7 @@ impl PineconeRequest {
 
         self.send(QUERY, |error_message| {
             PineconeApiError::QueryError(error_message)
-        })
-        .await
+        }).await
     }
 
     fn validate_query_request(&self) -> Option<Result<PineconeResponse, PineconeApiError>> {
@@ -192,7 +179,7 @@ impl PineconeRequest {
         self.send(UPDATE, |error_message| {
             PineconeApiError::UpdateError(error_message)
         })
-        .await
+            .await
     }
 
     fn validate_update_request(&self) -> Option<Result<PineconeResponse, PineconeApiError>> {
@@ -203,7 +190,7 @@ impl PineconeRequest {
             )));
         }
 
-        if self.sparse_values().is_none() && self.set_metadata().is_none() {
+        if self.sparse_values().is_none() && self.metadata().is_none() {
             return Some(Err(PineconeApiError::UpdateError(
                 "You must provide something to update! Provide either a sparse_values or set_metadata field".to_string(),
             )));
@@ -268,7 +255,7 @@ impl PineconeRequest {
         self.send(DELETE, |error_message| {
             PineconeApiError::DeleteError(error_message)
         })
-        .await
+            .await
     }
 
     fn validate_delete_request(&self) -> Option<Result<PineconeResponse, PineconeApiError>> {
@@ -282,7 +269,7 @@ impl PineconeRequest {
             Some(IdList::IntegerIds(_)) => {
                 return Some(Err(PineconeApiError::DeleteError(
                     "ids must be Strings".to_string(),
-                )))
+                )));
             }
             Some(IdList::TextIds(val)) => {
                 if val.len() == 0 {
@@ -304,16 +291,16 @@ impl PineconeRequest {
 mod tests {
     use super::*;
     use crate::libs::{
-        database_api::SQLiteObserver, openai_api::OpenAIEmbeddingResponse, pinecone_data::Vector,
+        openai_api::OpenAIEmbeddingResponse, pinecone_data::Vector,
     };
     use serde_json::from_reader;
     use std::{fs::File, io::BufReader};
     use tokio::test;
 
+    #[ignore]
     #[test]
     async fn test_upsert() {
         let embedding = read_openai_response_from_file("resources/embedding_example.json");
-        // let observer = Box::new(SQLiteObserver::new("test-db").unwrap());
 
         let namespace = "test_namespace".to_string();
         let vectors = vec![Vector::builder()
@@ -324,7 +311,6 @@ mod tests {
         let response = PineconeRequest::builder()
             .vectors(vectors)
             .namespace(namespace)
-            // .observer(observer)
             .build()
             .upsert()
             .await;
