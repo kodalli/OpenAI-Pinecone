@@ -17,7 +17,10 @@ impl SQLiteDB {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS items (
                 id TEXT PRIMARY KEY,
-                data TEXT NOT NULL
+                data TEXT NOT NULL,
+                embedding BLOB,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )",
             [],
         )?;

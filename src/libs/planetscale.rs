@@ -1,12 +1,14 @@
+use std::collections::HashMap;
 use std::error::Error;
 use mysql_async::{
     Pool,
     Row,
-    prelude::Queryable
+    prelude::Queryable,
+    params,
 };
 use std::sync::Arc;
-use crate::libs::database::Database;
 use async_trait::async_trait;
+use crate::libs::database::{convert_binary_to_embeddings, convert_embeddings_to_binary, Database};
 
 #[derive(Debug)]
 pub struct PlanetScaleDB {
@@ -27,15 +29,50 @@ impl PlanetScaleDB {
         Ok(())
     }
 
-    async fn init(&self) -> Result <(), Box<dyn Error>> {
+    async fn init(&self) -> Result<(), Box<dyn Error>> {
         let create_table_query = r#"
             CREATE TABLE IF NOT EXISTS items (
                 id VARCHAR(255) PRIMARY KEY,
                 data TEXT NOT NULL,
-                embedding BLOB
+                embedding BLOB,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         "#;
         self.execute_query(create_table_query).await
+    }
+
+    async fn insert_embedding_data(&self, id: &str, data: &str, embeddings: &[f32]) {
+        let mut conn = self.pool.get_conn().await.unwrap();
+        let binary_embeddings = convert_embeddings_to_binary(embeddings);
+
+        let query = r"INSERT INTO text_embeddings (id, data, embedding) VALUES (:id, :data, :embedding)";
+        let params = params! {
+            "id" => id,
+            "data" => data,
+            "embedding" => &binary_embeddings,
+        };
+
+        conn.exec_drop(query, params).await.unwrap();
+    }
+
+    async fn get_embedding_data(&self, id: &str) -> Option<(String, String, Vec<f32>)> {
+        let mut conn = self.pool.get_conn().await.unwrap();
+
+        let query = r"SELECT id, data, embedding FROM text_embeddings WHERE id = :id";
+        let params = params! {
+            "id" => id,
+        };
+
+        let row : Option<(String, String, Vec<u8>)> = conn.exec_first(query, params).await.unwrap();
+        if let Some((id, data, binary_data)) = row {
+            let id: String = id;
+            let data: String = data;
+            let embeddings = convert_binary_to_embeddings(binary_data.as_slice()).unwrap();
+            Some((id, data, embeddings))
+        } else {
+            None
+        }
     }
 }
 

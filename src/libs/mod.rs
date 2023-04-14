@@ -3,4 +3,4 @@ pub mod pinecone_api;
 pub mod pinecone_data;
 pub mod sql_lite;
 pub mod planetscale;
-mod database;
+pub mod database;
